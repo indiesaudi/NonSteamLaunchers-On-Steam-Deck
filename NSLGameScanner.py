@@ -14,7 +14,6 @@ import subprocess
 import sqlite3
 import csv
 import configparser
-import certifi
 import itertools
 import fcntl
 import shlex
@@ -1583,7 +1582,27 @@ def check_if_shortcut_exists(display_name, exe_path, start_dir, launch_options):
             print(f"Existing website shortcut found for {display_name}. Skipping creation.")
             return True
 
+        # Same target already added by another tool under its own wrapper/name
+        # (e.g. ArmadaOS wraps Xodus games and Flatpaks with armada-game-launch)
+        if is_wrapped_duplicate(s, stripped_exe_path, launch_options):
+            print(f"Existing shortcut for the same target found for {display_name}. Skipping creation.")
+            return True
+
     return False
+
+
+def is_wrapped_duplicate(shortcut, exe_path, launch_options):
+    if not exe_path or not launch_options:
+        return False
+    try:
+        key = shlex.split(launch_options)[-1]  # game id / Flatpak app id
+    except ValueError:
+        return False
+    if len(key) < 8 or key.startswith(("%", "-")):
+        return False
+    target = os.path.basename(exe_path.rstrip("/"))
+    combined = f"{shortcut.get('exe') or shortcut.get('Exe') or ''} {shortcut.get('LaunchOptions') or ''}"
+    return key in combined and target in combined
 
 
 # Start of Refactoring code from the .sh file

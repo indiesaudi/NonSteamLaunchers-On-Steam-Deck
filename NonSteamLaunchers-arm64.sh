@@ -1036,7 +1036,8 @@ function download_umu_launcher() {
     }
 
     if [ -f "${logged_in_home}/bin/umu-run" ]; then
-        "${logged_in_home}/bin/umu-run" winetricks --self-update
+        # Point UMU at the aarch64 GE-Proton; its default UMU-Proton is x86_64 and runs under FEX
+        PROTONPATH="${proton_dir:-GE-Proton}" "${logged_in_home}/bin/umu-run" winetricks --self-update
     else
         echo "umu-run not found. Skipping self-update."
     fi
