@@ -3571,8 +3571,14 @@ function install_launcher {
                 # The setup is a wizard that ignores silent switches; all it does is unpack this tar.gz bundle
                 plarium_dir="${STEAM_COMPAT_DATA_PATH}/pfx/drive_c/users/steamuser/AppData/Local/PlariumPlay"
                 plarium_bundle="${logged_in_home}/Downloads/NonSteamLaunchersInstallation/PlariumPlay.bundle"
-                read -r plarium_link plarium_version < <(curl -fsSL "https://desktop.plarium.com/api/release/latest/win/x64" |
-                    python3 -c 'import json,sys; r=json.load(sys.stdin); print(r["link"].replace("\\","/"), r["version"]+"-"+r["buildVersion"])')
+                # Fetch the bundle matching the setup's version: it ships its own .NET runtime, while the API's
+                # "latest" (an older build) needs .NET Desktop 6 installed in the prefix
+                plarium_version=$(7z l "$plarium_file" 2>/dev/null | awk '/^FileVersion:/ {split($2, v, "."); print v[1]"."v[2]"."v[3]"-0.0.0"; exit}')
+                plarium_link="https://cdn-gpd.x-plarium.com/browser/plarium-play/application/win/${plarium_version}/x64/PlariumPlay.bundle"
+                if [ -z "$plarium_version" ] || ! curl -fsIL "$plarium_link" > /dev/null; then
+                    read -r plarium_link plarium_version < <(curl -fsSL "https://desktop.plarium.com/api/release/latest/win/x64" |
+                        python3 -c 'import json,sys; r=json.load(sys.stdin); print(r["link"].replace("\\","/"), r["version"]+"-"+r["buildVersion"])')
+                fi
                 nsl_download "$plarium_link" "$plarium_bundle" || exit 1
                 mkdir -p "$plarium_dir"
                 tar -xzf "$plarium_bundle" -C "$plarium_dir"

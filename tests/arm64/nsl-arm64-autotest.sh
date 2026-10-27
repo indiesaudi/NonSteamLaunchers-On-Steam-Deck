@@ -70,14 +70,15 @@ proton_dir() {
 	find -L "${STEAM}/compatibilitytools.d" -maxdepth 1 -type d -name "GE-Proton*-aarch64" | sort -V | tail -n1
 }
 
-# Resolve the installed exe: the expected path, else the same file name anywhere in drive_c
+# Resolve the installed exe: the expected path, else the same folder + file name anywhere in drive_c
+# (the folder too, since several launchers just ship a "launcher.exe")
 find_exe() {
 	local rel="$1"
 	if [[ -f "${DRIVE_C}/${rel}" ]]; then
 		echo "${DRIVE_C}/${rel}"
 		return
 	fi
-	find "$DRIVE_C" -type f -iname "$(basename "$rel")" -not -path "*/windows/*" 2>/dev/null | head -n1
+	find "$DRIVE_C" -type f -ipath "*/$(basename "$(dirname "$rel")")/$(basename "$rel")" -not -path "*/windows/*" 2>/dev/null | head -n1
 }
 
 pe_arch() {
