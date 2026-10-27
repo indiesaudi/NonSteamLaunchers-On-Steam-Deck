@@ -1591,6 +1591,23 @@ def check_if_shortcut_exists(display_name, exe_path, start_dir, launch_options):
     return False
 
 
+ARMADA_LAUNCH_WRAPPER = "/usr/libexec/armada/armada-game-launch"
+
+
+def wrap_for_armada(launch_options):
+    # ArmadaOS applies per-game FEX/driver tweaks through this wrapper, but armada-control only
+    # wraps shortcuts at startup; add it now in the same format so new shortcuts get it too
+    if not os.path.exists(ARMADA_LAUNCH_WRAPPER):
+        return launch_options
+    opts = launch_options or ""
+    if ARMADA_LAUNCH_WRAPPER in opts:
+        return opts
+    wrapped = f"{ARMADA_LAUNCH_WRAPPER} %command%"
+    if "%command%" in opts:
+        return opts.replace("%command%", wrapped, 1)
+    return f"{wrapped} {opts.strip()}" if opts.strip() else wrapped
+
+
 def is_wrapped_duplicate(shortcut, exe_path, launch_options):
     if not exe_path or not launch_options:
         return False
@@ -6123,7 +6140,7 @@ def create_new_entry(shortcutdirectory, appname, launchoptions, startingdir, lau
         'exe': exe_path,
         'StartDir': startingdir,
         'icon': f"{logged_in_home}/.steam/root/userdata/{steamid3}/config/grid/{get_file_name('icons', unsigned_shortcut_id)}",
-        'LaunchOptions': launchoptions,
+        'LaunchOptions': wrap_for_armada(launchoptions),
         'WideGrid': grid64,
         'Grid': gridp64,
         'Hero': hero64,
