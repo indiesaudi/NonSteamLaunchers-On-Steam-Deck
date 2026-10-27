@@ -9,6 +9,7 @@ import gzip
 import zipfile
 import time
 import sys
+import platform
 import subprocess
 import sqlite3
 import csv
@@ -8344,11 +8345,17 @@ flatpak_apps = [
     {
         "id": "com.hypixel.HytaleLauncher",
         "display_name": "Hytale"
+    },
+    {
+        "id": "org.prismlauncher.PrismLauncher",
+        "display_name": "Prism Launcher"
     }
 ]
 
 exe_path = "/usr/bin/flatpak"
 start_dir = "/usr/bin"
+# Native Flatpak arch for this machine; Hytale only ships x86_64 and runs via FEX on arm64
+flatpak_arch = "aarch64" if platform.machine() == "aarch64" else "x86_64"
 
 def is_flatpak_installed(app_id):
     try:
@@ -8372,7 +8379,7 @@ for app in flatpak_apps:
 
     # Custom launch options for specific apps
     if app_id == "com.moonlight_stream.Moonlight":
-        app_launch_options = '"run" "--branch=stable" "--arch=x86_64" "--command=moonlight" "com.moonlight_stream.Moonlight"'
+        app_launch_options = f'"run" "--branch=stable" "--arch={flatpak_arch}" "--command=moonlight" "com.moonlight_stream.Moonlight"'
     elif app_id == "com.hypixel.HytaleLauncher":
         app_launch_options = '"run" "--branch=master" "--arch=x86_64" "--command=hytale-launcher-wrapper" "com.hypixel.HytaleLauncher"'
     else:
@@ -8387,6 +8394,28 @@ for app in flatpak_apps:
     )
     track_game(display_name, "Launcher")
 # End of Flatpak Scanner
+
+
+#Heroic Games Launcher (native) Scanner
+# Prefer a distro-provided Heroic (e.g. ArmadaOS /usr/bin/heroic), then the AppImage NSL installs
+heroic_exe = shutil.which("heroic")
+if not heroic_exe:
+    heroic_appimage = f"{logged_in_home}/.local/share/applications/Heroic.AppImage"
+    if os.path.isfile(heroic_appimage):
+        heroic_exe = heroic_appimage
+
+if heroic_exe:
+    create_new_entry(
+        shortcutdirectory=f'"{heroic_exe}"',
+        appname="Heroic Games Launcher",
+        launchoptions="",
+        startingdir=f'"{os.path.dirname(heroic_exe)}"',
+        launcher_name="NonSteamLaunchers"
+    )
+    track_game("Heroic Games Launcher", "Launcher")
+else:
+    print("Skipping Heroic Games Launcher scanner — Heroic not found.")
+# End of Heroic Games Launcher Scanner
 
 
 
