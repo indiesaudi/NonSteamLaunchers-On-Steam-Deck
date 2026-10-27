@@ -2,7 +2,8 @@
 
 # arm64 build of NonSteamLaunchers: uses aarch64 GE-Proton, the arm64 Steam Linux Runtime,
 # and aarch64 Flatpaks/tools. Run NonSteamLaunchers.sh on x86_64 instead.
-if [[ "$(uname -m)" != "aarch64" ]]; then
+# uname -m reports x86_64 when run from an FEX-emulated parent (e.g. Decky), so also check the host loader
+if [[ "$(uname -m)" != "aarch64" && ! -e /lib/ld-linux-aarch64.so.1 ]]; then
     echo "NonSteamLaunchers-arm64.sh only supports aarch64 (detected $(uname -m)). Use NonSteamLaunchers.sh instead."
     exit 1
 fi
