@@ -35,8 +35,16 @@ show_update_message() {
 }
 
 # Set URLs and paths
-REPO_URL="https://github.com/moraroy/NonSteamLaunchersDecky/archive/refs/heads/main.zip"
-GITHUB_URL="https://raw.githubusercontent.com/moraroy/NonSteamLaunchersDecky/main/package.json"
+# arm64 devices get the arm64 fork of the plugin; uname -m can report x86_64 under FEX, so also check the host loader
+if [[ "$(uname -m)" == "aarch64" || -e /lib/ld-linux-aarch64.so.1 ]]; then
+  PLUGIN_REPO="indiesaudi/NonSteamLaunchersDecky"
+  PLUGIN_BRANCH="arm64"
+else
+  PLUGIN_REPO="moraroy/NonSteamLaunchersDecky"
+  PLUGIN_BRANCH="main"
+fi
+REPO_URL="https://github.com/${PLUGIN_REPO}/archive/refs/heads/${PLUGIN_BRANCH}.zip"
+GITHUB_URL="https://raw.githubusercontent.com/${PLUGIN_REPO}/${PLUGIN_BRANCH}/package.json"
 LOCAL_DIR="${logged_in_home}/homebrew/plugins/NonSteamLaunchers"
 
 # Ask the user
@@ -128,7 +136,7 @@ else
 
   curl -L "$REPO_URL" -o /tmp/NonSteamLaunchersDecky.zip
   unzip -o /tmp/NonSteamLaunchersDecky.zip -d /tmp/
-  cp -r /tmp/NonSteamLaunchersDecky-main/* "$LOCAL_DIR"
+  cp -r "/tmp/NonSteamLaunchersDecky-${PLUGIN_BRANCH}"/* "$LOCAL_DIR"
 
   rm -rf /tmp/NonSteamLaunchersDecky*
 fi
