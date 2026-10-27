@@ -367,7 +367,7 @@ proton_dir=$(find -L "${logged_in_home}/.steam/root/compatibilitytools.d" -maxde
 if [[ -n "$proton_dir" ]]; then
     compat_tool_name=$(basename "$proton_dir")
 else
-    compat_tool_name="Proton Experimental"
+    compat_tool_name="proton-experimental-arm64"
 fi
 
 # Get Python version
