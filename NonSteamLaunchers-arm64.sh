@@ -3445,6 +3445,17 @@ install_gryphlink() {
 
 
 
+# The arm64 Proton prefix has no .NETFramework InstallRoot, so Wine's mscoree can't
+# resolve a runtime directory and .NET MSI custom actions (e.g. Epic Online Services)
+# fail with 1603. Add it for both registry views once per prefix.
+function nsl_fix_netfx_installroot {
+    if grep -qF '.NETFramework]' "${STEAM_COMPAT_DATA_PATH}/pfx/system.reg" 2>/dev/null; then
+        return 0
+    fi
+    "$STEAM_RUNTIME" -- "$proton_dir/proton" run reg add 'HKLM\Software\Microsoft\.NETFramework' /v InstallRoot /t REG_SZ /d 'C:\windows\Microsoft.NET\Framework64\' /f /reg:64
+    "$STEAM_RUNTIME" -- "$proton_dir/proton" run reg add 'HKLM\Software\Microsoft\.NETFramework' /v InstallRoot /t REG_SZ /d 'C:\windows\Microsoft.NET\Framework\' /f /reg:32
+}
+
 #Launcher Installs
 function install_launcher {
     launcher_name=$1
@@ -3497,6 +3508,8 @@ function install_launcher {
 
         # Set the STEAM_COMPAT_DATA_PATH environment variable for the launcher
         export STEAM_COMPAT_DATA_PATH="${logged_in_home}/.local/share/Steam/steamapps/compatdata/${appid}"
+
+        nsl_fix_netfx_installroot
 
         # Download file
         if [ ! -f "$file_name" ]; then
