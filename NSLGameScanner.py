@@ -5876,6 +5876,12 @@ def get_compat_tool_if_needed(launchoptions, exe_path, startingdir):
             print(f"Exclusion: {steam_compat_marker} not in launch options.")
             return None
 
+    # Native Linux targets (e.g. /usr/bin/heroic, Flatpaks) must not be forced through Proton
+    if steam_compat_marker not in launchoptions and \
+       not exe_path.strip('"').lower().endswith(('.exe', '.msi', '.bat')):
+        print("Exclusion: native Linux target without a Proton prefix.")
+        return None
+
     print("No exclusions applied. Returning compat tool.")
     return compat_tool_name
 
