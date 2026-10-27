@@ -3569,6 +3569,18 @@ function install_launcher {
                 sleep 15
                 pkill -f 'Files \(x86\)\\Arc\\'
                 echo "ARC Launcher installation complete."
+            elif [ "$launcher_name" = "Plarium Play" ]; then
+                # The setup is a wizard that ignores silent switches; all it does is unpack this tar.gz bundle
+                plarium_dir="${STEAM_COMPAT_DATA_PATH}/pfx/drive_c/users/steamuser/AppData/Local/PlariumPlay"
+                plarium_bundle="${logged_in_home}/Downloads/NonSteamLaunchersInstallation/PlariumPlay.bundle"
+                read -r plarium_link plarium_version < <(curl -fsSL "https://desktop.plarium.com/api/release/latest/win/x64" |
+                    python3 -c 'import json,sys; r=json.load(sys.stdin); print(r["link"].replace("\\","/"), r["version"]+"-"+r["buildVersion"])')
+                nsl_download "$plarium_link" "$plarium_bundle" || exit 1
+                mkdir -p "$plarium_dir"
+                tar -xzf "$plarium_bundle" -C "$plarium_dir"
+                rm -rf "${plarium_dir:?}/${plarium_version}"
+                mv "$plarium_dir/build" "$plarium_dir/${plarium_version}"
+                echo "Plarium Play installation complete."
             else
 				"$STEAM_RUNTIME" -- "$proton_dir/proton" run ${run_command} &
             fi
@@ -3658,7 +3670,7 @@ install_launcher "Antstream Arcade" "AntstreamLauncher" "$antstream_file" "$ants
 install_launcher "PURPLE Launcher" "PURPLELauncher" "$purple_file" "$purple_url" "$purple_file /S" "92" "" ""
 
 # Install Plarium Launcher
-install_launcher "Plarium Play" "PlariumLauncher" "$plarium_file" "$plarium_url" "$plarium_file /S" "93" "" ""
+install_launcher "Plarium Play" "PlariumLauncher" "$plarium_file" "$plarium_url" "$plarium_file" "93" "" "" true
 
 #Install VFUN Launcher
 install_launcher "VFUN Launcher" "VFUNLauncher" "$vfun_file" "$vfun_url" "$vfun_file /S" "94" "" ""
