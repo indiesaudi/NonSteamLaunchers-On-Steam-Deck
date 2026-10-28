@@ -2,12 +2,12 @@
 """Open every NSL launcher shortcut from Game Mode and check it comes up.
 
 Launches each Steam shortcut through the Steam client itself (SteamClient.Apps.RunGame over the
-CEF DevTools port, the same path as pressing Play), waits, then records whether the launcher's
+CEF DevTools port, the same path as pressing Play), waits for gamescope to see its window, then records whether the launcher's
 process is running and saves a gamescope screenshot of what is on screen. Stops it again through
 Steam before moving on. Run on the device while it is in Game Mode.
 
 Usage: nsl_arm64_gamemode_test.py [shortcut name ...]   (default: every known launcher shortcut)
-Env:   LAUNCH_WAIT (s, default 75)
+Env:   LAUNCH_WAIT (max s to wait for a window, default 240), WINDOW_SETTLE (s to let it paint, default 20)
 """
 
 import base64
@@ -26,7 +26,9 @@ import time
 import urllib.parse
 import urllib.request
 
-LAUNCH_WAIT = int(os.environ.get("LAUNCH_WAIT", "75"))
+LAUNCH_WAIT = int(os.environ.get("LAUNCH_WAIT", "240"))
+# Time to let a window paint after gamescope first sees it (launchers often map a blank window first)
+WINDOW_SETTLE = int(os.environ.get("WINDOW_SETTLE", "20"))
 HOME = os.path.expanduser("~")
 STEAM = f"{HOME}/.local/share/Steam"
 PREFIX = f"{STEAM}/steamapps/compatdata/NonSteamLaunchers"
@@ -192,13 +194,31 @@ def keep_awake():
     x.XCloseDisplay(d)
 
 
-def wait_awake(seconds):
-    end = time.time() + seconds
-    while time.time() < end:
+def window_shown(appid):
+    """True once gamescope shows this app's window (an app can have focusable but never-shown windows)."""
+    out = subprocess.run(
+        ["xprop", "-root", "GAMESCOPE_FOCUSED_APP"],
+        env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")},
+        capture_output=True,
+        text=True,
+    ).stdout
+    return str(appid) in re.findall(r"\d+", out)
+
+
+def wait_for_window(appid, seconds):
+    """Wait up to `seconds` for the app's window, then let it paint; returns seconds until it appeared, or None."""
+    start = time.time()
+    seen = None
+    while time.time() < start + seconds:
         keep_awake()
-        time.sleep(min(20, max(0, end - time.time())))
+        if window_shown(appid):
+            seen = int(time.time() - start)
+            time.sleep(WINDOW_SETTLE)
+            break
+        time.sleep(5)
     keep_awake()
-    time.sleep(2)
+    time.sleep(3)
+    return seen if window_shown(appid) else None
 
 
 def screenshot(dest):
@@ -227,6 +247,12 @@ def stop(cdp, gid):
     time.sleep(4)
     subprocess.run(["pkill", "-KILL", "-f", r"^[A-Za-z]:[/\\]"], capture_output=True)
     subprocess.run(["pkill", "-KILL", "-f", "wineserver"], capture_output=True)
+    # Steam refuses the next launch ("Game already running") until it has noticed this one exit
+    appid = str(int(gid) >> 32)
+    for _ in range(20):
+        if not cdp.eval(f"(window.SteamUIStore?.RunningApps || []).some(a => String(a.appid) === '{appid}')"):
+            break
+        time.sleep(3)
     time.sleep(3)
 
 
@@ -239,26 +265,39 @@ def main():
     for name in names:
         shortcut = shortcuts.get(name)
         if not shortcut:
-            rows.append((name, "no shortcut", "-", "-"))
+            rows.append((name, "no shortcut", "-", "-", "-"))
             print(f"{name}: no shortcut", flush=True)
             continue
         gid = game_id(shortcut["appid"])
         slug = re.sub(r"[^A-Za-z0-9]", "_", name)
-        print(f"{name}: launching {gid} for {LAUNCH_WAIT}s", flush=True)
-        cdp.eval(f"SteamClient.Apps.RunGame('{gid}', '', -1, 100)")
-        wait_awake(LAUNCH_WAIT)
-        running = cdp.eval(f"(window.SteamUIStore?.RunningApps || []).some(a => String(a.appid) === '{shortcut['appid']}')")
+        print(f"{name}: launching {gid}, waiting up to {LAUNCH_WAIT}s for a window", flush=True)
+        is_running = f"(window.SteamUIStore?.RunningApps || []).some(a => String(a.appid) === '{shortcut['appid']}')"
+        # Steam sometimes drops a launch requested just after the previous app exited; ask again
+        for _ in range(3):
+            cdp.eval(f"SteamClient.Apps.RunGame('{gid}', '', -1, 100)")
+            time.sleep(15)
+            if cdp.eval(is_running) or process_running(shortcut):
+                break
+        seen = wait_for_window(shortcut["appid"], LAUNCH_WAIT)
+        shown = seen is not None
+        took = f"{seen}s" if shown else "-"
+        running = cdp.eval(is_running)
         alive = process_running(shortcut)
         shot = f"{slug}.png" if screenshot(f"{OUT}/{slug}.png") else "-"
-        result = "PASS" if alive else "FAIL(not running)"
-        rows.append((name, result, "yes" if running else "no", shot))
-        print(f"{name}: {result} steam_running={running} screenshot={shot}", flush=True)
+        if alive and shown:
+            result = "PASS"
+        elif alive:
+            result = "FAIL(no window)"
+        else:
+            result = "FAIL(not running)"
+        rows.append((name, result, took, "yes" if running else "no", shot))
+        print(f"{name}: {result} window_after={took} steam_running={running} screenshot={shot}", flush=True)
         stop(cdp, gid)
 
     with open(f"{OUT}/report.md", "w") as f:
         f.write(f"# NSL arm64 Game Mode launch test {time.strftime('%Y-%m-%d %H:%M')}\n\n")
-        f.write(f"Launched through Steam (SteamClient.Apps.RunGame), checked after {LAUNCH_WAIT}s.\n\n")
-        f.write("| Shortcut | Result | Steam shows running | Screenshot |\n|---|---|---|---|\n")
+        f.write(f"Launched through Steam (SteamClient.Apps.RunGame), waiting up to {LAUNCH_WAIT}s for a window.\n\n")
+        f.write("| Shortcut | Result | Window after | Steam shows running | Screenshot |\n|---|---|---|---|---|\n")
         for row in rows:
             f.write("| " + " | ".join(row) + " |\n")
     open(f"{OUT}/DONE", "w").close()
