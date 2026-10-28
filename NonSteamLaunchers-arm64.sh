@@ -3296,22 +3296,33 @@ function install_nexon {
 
 # Big Fish specific installation function
 function install_bigfish {
-    "$STEAM_RUNTIME" -- "$proton_dir/proton" run "$bigfish_file" /S &
-    bigfish_pid=$!
-
-    wait $bigfish_pid
-    pkill CrBrowserMain
-
     local drive_c="${STEAM_COMPAT_DATA_PATH}/pfx/drive_c"
-    # The silent install leaves the client unconfigured, so it aborts with "Cannot find the store URL":
-    # select the installer's site/language (bfginstaller32_s1_l1) and put the config where the client reads it
+    local bigfish_dir="$drive_c/Program Files (x86)/bfgclient"
+    # The installer's /S stalls in its update check, so unpack it like it would. The download only wraps the
+    # real installer ($1\Upgrade\clientinstaller); in that one $0 is C:\ProgramData (Big Fish\Game Manager,
+    # Big Fish\cef, GameManager\ClientConfig) and the rest goes to the install folder
+    local bigfish_tmp bigfish_inner
+    bigfish_tmp=$(mktemp -d)
+    7z x -y -o"$bigfish_tmp/outer" "$bigfish_file" > /dev/null
+    bigfish_inner=$(find "$bigfish_tmp/outer" -ipath "*clientinstaller*" -iname "*.exe" | head -n1)
+    7z x -y -o"$bigfish_tmp/inner" "${bigfish_inner:-$bigfish_file}" > /dev/null
+    rm -rf "$bigfish_tmp/outer"
+    bigfish_tmp="$bigfish_tmp/inner"
+    rm -rf "$bigfish_tmp/\$PLUGINSDIR" "$bigfish_tmp/[0]" "$bigfish_tmp/uninstall.exe.nsis"
+    mkdir -p "$drive_c/ProgramData" "$bigfish_dir"
+    cp -r "$bigfish_tmp/\$0/." "$drive_c/ProgramData/"
+    rm -rf "$bigfish_tmp/\$0"
+    cp -r "$bigfish_tmp/." "$bigfish_dir/"
+    rm -rf "$(dirname "$bigfish_tmp")"
+
+    # Configure what the installer would: the site/language of this installer (bfginstaller32_s1_l1),
+    # without which the client aborts with "Cannot find the store URL", and its config where the client reads it
     for value in SiteID LangID; do
         "$STEAM_RUNTIME" -- "$proton_dir/proton" run reg add 'HKLM\Software\Big Fish Games\Client\Config' /v "$value" /t REG_SZ /d 1 /f /reg:32
     done
-    if [ -d "$drive_c/ProgramData/GameManager" ]; then
-        mkdir -p "$drive_c/BigFishCache"
-        cp -r "$drive_c/ProgramData/GameManager" "$drive_c/BigFishCache/"
-    fi
+    "$STEAM_RUNTIME" -- "$proton_dir/proton" run reg add 'HKLM\Software\Big Fish Games\Client\Config' /v GameBasePath /t REG_SZ /d 'C:\Program Files (x86)' /f /reg:32
+    mkdir -p "$drive_c/BigFishCache"
+    cp -r "$drive_c/ProgramData/GameManager" "$drive_c/BigFishCache/"
     # zlib1.dll and unicows.dll aren't marked NX-compatible, so Wine turns DEP off for the client. FEX then
     # makes its window-procedure thunks non-executable and it crashes; marking them keeps DEP on.
     python3 - "$drive_c/Program Files (x86)/bfgclient/zlib1.dll" "$drive_c/Program Files (x86)/bfgclient/unicows.dll" <<'EOF'
