@@ -106,6 +106,11 @@ class Cdp:
     """Minimal Chrome DevTools client for Steam's SharedJSContext."""
 
     def __init__(self, title="SharedJSContext"):
+        self.title = title
+        self.connect()
+
+    def connect(self):
+        title = self.title
         with urllib.request.urlopen("http://127.0.0.1:8080/json") as resp:
             targets = json.load(resp)
         url = urllib.parse.urlparse(next(t["webSocketDebuggerUrl"] for t in targets if t["title"] == title))
@@ -117,17 +122,33 @@ class Cdp:
         )
         self.buf = b""
         while b"\r\n\r\n" not in self.buf:
-            self.buf += self.sock.recv(4096)
+            self.buf += self._recv(4096)
         self.buf = self.buf.split(b"\r\n\r\n", 1)[1]
         self.next_id = 0
 
+    def _recv(self, size):
+        data = self.sock.recv(size)
+        if not data:
+            raise ConnectionError("Steam closed the DevTools connection")
+        return data
+
     def _need(self, n):
         while len(self.buf) < n:
-            self.buf += self.sock.recv(65536)
+            self.buf += self._recv(65536)
         out, self.buf = self.buf[:n], self.buf[n:]
         return out
 
     def eval(self, expr):
+        # Steam drops the socket when its UI reloads; reconnect once instead of failing the whole run
+        try:
+            return self._eval(expr)
+        except OSError:
+            self.sock.close()
+            time.sleep(10)
+            self.connect()
+            return self._eval(expr)
+
+    def _eval(self, expr):
         self.next_id += 1
         payload = json.dumps(
             {
