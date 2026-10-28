@@ -277,8 +277,52 @@ def window_text(x, d, w, prop):
     return ctypes.string_at(data, count.value).replace(b"\0", b" ").decode(errors="replace").strip()
 
 
+# Popups whose custom-drawn buttons ignore Enter: window title -> where to click inside it
+CLICK_DIALOGS = {
+    "Dialog - GRYPHLINK": (350, 234),  # "Launcher version update detected" -> Update
+}
+
+
+def children_of(x, d, w):
+    parent, children, count = ctypes.c_ulong(), ctypes.POINTER(ctypes.c_ulong)(), ctypes.c_uint()
+    x.XQueryTree(d, w, ctypes.byref(ctypes.c_ulong()), ctypes.byref(parent), ctypes.byref(children), ctypes.byref(count))
+    return [children[i] for i in range(count.value)]
+
+
+def click_known_dialogs(x, d, root, top_windows):
+    """Click the button CLICK_DIALOGS names in any of the app's windows (virtual desktops nest them); returns titles."""
+    xt = ctypes.cdll.LoadLibrary(ctypes.util.find_library("Xtst"))
+    xt.XTestFakeMotionEvent.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_ulong]
+    xt.XTestFakeButtonEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_int, ctypes.c_ulong]
+    x.XTranslateCoordinates.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_int, ctypes.c_int]
+    x.XTranslateCoordinates.argtypes += [ctypes.POINTER(ctypes.c_int)] * 2 + [ctypes.POINTER(ctypes.c_ulong)]
+    clicked, todo = [], list(top_windows)
+    while todo:
+        w = todo.pop()
+        attrs = XWindowAttributes()
+        x.XGetWindowAttributes(d, w, ctypes.byref(attrs))
+        if attrs.map_state != 2:
+            continue
+        title = window_text(x, d, w, "WM_NAME")
+        if title not in CLICK_DIALOGS:
+            todo += children_of(x, d, w)
+            continue
+        ax, ay = ctypes.c_int(), ctypes.c_int()
+        x.XTranslateCoordinates(
+            d, w, root, *CLICK_DIALOGS[title], ctypes.byref(ax), ctypes.byref(ay), ctypes.byref(ctypes.c_ulong())
+        )
+        xt.XTestFakeMotionEvent(d, -1, ax.value, ay.value, 0)
+        x.XSync(d, 0)
+        time.sleep(0.3)
+        xt.XTestFakeButtonEvent(d, 1, 1, 0)
+        xt.XTestFakeButtonEvent(d, 1, 0, 0)
+        x.XSync(d, 0)
+        clicked.append(title)
+    return clicked
+
+
 def dismiss_dialogs(appid, display=":1"):
-    """Press Enter on the app's popups; returns their titles.
+    """Press Enter on the app's popups (or click the ones CLICK_DIALOGS knows); returns their titles.
 
     Covers first-run prompts Wine draws as separate windows: ones clearly smaller than the app's main window, or,
     before any main window exists, the topmost short window (VK Play's install folder picker, PlayStation Plus's VM
@@ -291,15 +335,16 @@ def dismiss_dialogs(appid, display=":1"):
     if not d:
         return []
     root = x.XDefaultRootWindow(d)
-    parent, children, count = ctypes.c_ulong(), ctypes.POINTER(ctypes.c_ulong)(), ctypes.c_uint()
-    x.XQueryTree(d, root, ctypes.byref(ctypes.c_ulong()), ctypes.byref(parent), ctypes.byref(children), ctypes.byref(count))
     windows = []
-    for i in range(count.value):
-        w = children[i]
+    for w in children_of(x, d, root):
         attrs = XWindowAttributes()
         x.XGetWindowAttributes(d, w, ctypes.byref(attrs))
         if attrs.map_state == 2 and not attrs.override_redirect and f"steam_app_{appid}" in window_text(x, d, w, "WM_CLASS"):
             windows.append((attrs.width, attrs.height, w, window_text(x, d, w, "WM_NAME")))
+    clicked = click_known_dialogs(x, d, root, [w for _, _, w, _ in windows])
+    if clicked:
+        x.XCloseDisplay(d)
+        return clicked
     # XQueryTree lists windows bottom to top
     largest = max((width * height for width, height, _, _ in windows), default=0)
     if largest >= 400 * 600:
@@ -474,7 +519,8 @@ def main():
             if not titles:
                 break
             dismissed += titles
-            time.sleep(8)
+            # a clicked button (Gryphlink's Update) starts a download and restart
+            time.sleep(90 if set(titles) & set(CLICK_DIALOGS) else 8)
         if dismissed:
             print(f"{name}: dismissed {dismissed}", flush=True)
             keep_awake()
