@@ -198,6 +198,129 @@ def keep_awake():
     x.XCloseDisplay(d)
 
 
+class XWindowAttributes(ctypes.Structure):
+    _fields_ = [
+        ("x", ctypes.c_int),
+        ("y", ctypes.c_int),
+        ("width", ctypes.c_int),
+        ("height", ctypes.c_int),
+        ("border_width", ctypes.c_int),
+        ("depth", ctypes.c_int),
+        ("visual", ctypes.c_void_p),
+        ("root", ctypes.c_ulong),
+        ("c_class", ctypes.c_int),
+        ("bit_gravity", ctypes.c_int),
+        ("win_gravity", ctypes.c_int),
+        ("backing_store", ctypes.c_int),
+        ("backing_planes", ctypes.c_ulong),
+        ("backing_pixel", ctypes.c_ulong),
+        ("save_under", ctypes.c_int),
+        ("colormap", ctypes.c_ulong),
+        ("map_installed", ctypes.c_int),
+        ("map_state", ctypes.c_int),
+        ("all_event_masks", ctypes.c_long),
+        ("your_event_mask", ctypes.c_long),
+        ("do_not_propagate_mask", ctypes.c_long),
+        ("override_redirect", ctypes.c_int),
+        ("screen", ctypes.c_void_p),
+    ]
+
+
+def xlib():
+    x = ctypes.cdll.LoadLibrary(ctypes.util.find_library("X11"))
+    x.XOpenDisplay.restype = ctypes.c_void_p
+    x.XOpenDisplay.argtypes = [ctypes.c_char_p]
+    x.XDefaultRootWindow.restype = ctypes.c_ulong
+    x.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+    x.XQueryTree.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_ulong,
+        ctypes.POINTER(ctypes.c_ulong),
+        ctypes.POINTER(ctypes.c_ulong),
+        ctypes.POINTER(ctypes.POINTER(ctypes.c_ulong)),
+        ctypes.POINTER(ctypes.c_uint),
+    ]
+    x.XGetWindowAttributes.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(XWindowAttributes)]
+    x.XInternAtom.restype = ctypes.c_ulong
+    x.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+    x.XGetWindowProperty.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+        ctypes.c_long,
+        ctypes.c_long,
+        ctypes.c_int,
+        ctypes.c_ulong,
+        ctypes.POINTER(ctypes.c_ulong),
+        ctypes.POINTER(ctypes.c_int),
+        ctypes.POINTER(ctypes.c_ulong),
+        ctypes.POINTER(ctypes.c_ulong),
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
+    x.XSetInputFocus.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+    x.XRaiseWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+    x.XKeysymToKeycode.restype = ctypes.c_ubyte
+    x.XKeysymToKeycode.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+    x.XSync.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    x.XCloseDisplay.argtypes = [ctypes.c_void_p]
+    return x
+
+
+def window_text(x, d, w, prop):
+    atom_type, fmt, count, after, data = ctypes.c_ulong(), ctypes.c_int(), ctypes.c_ulong(), ctypes.c_ulong(), ctypes.c_void_p()
+    atom = x.XInternAtom(d, prop.encode(), 0)
+    if (
+        x.XGetWindowProperty(d, w, atom, 0, 256, 0, 0, *(ctypes.byref(v) for v in (atom_type, fmt, count, after, data)))
+        or not count.value
+    ):
+        return ""
+    return ctypes.string_at(data, count.value).replace(b"\0", b" ").decode(errors="replace").strip()
+
+
+def dismiss_dialogs(appid, display=":1"):
+    """Press Enter on the app's popups; returns their titles.
+
+    Covers first-run prompts Wine draws as separate windows: ones clearly smaller than the app's main window, or,
+    before any main window exists, the topmost short window (VK Play's install folder picker, PlayStation Plus's VM
+    warning). Splash screens ignore the key.
+    """
+    x = xlib()
+    xt = ctypes.cdll.LoadLibrary(ctypes.util.find_library("Xtst"))
+    xt.XTestFakeKeyEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_int, ctypes.c_ulong]
+    d = x.XOpenDisplay(display.encode())
+    if not d:
+        return []
+    root = x.XDefaultRootWindow(d)
+    parent, children, count = ctypes.c_ulong(), ctypes.POINTER(ctypes.c_ulong)(), ctypes.c_uint()
+    x.XQueryTree(d, root, ctypes.byref(ctypes.c_ulong()), ctypes.byref(parent), ctypes.byref(children), ctypes.byref(count))
+    windows = []
+    for i in range(count.value):
+        w = children[i]
+        attrs = XWindowAttributes()
+        x.XGetWindowAttributes(d, w, ctypes.byref(attrs))
+        if attrs.map_state == 2 and not attrs.override_redirect and f"steam_app_{appid}" in window_text(x, d, w, "WM_CLASS"):
+            windows.append((attrs.width, attrs.height, w, window_text(x, d, w, "WM_NAME")))
+    # XQueryTree lists windows bottom to top
+    largest = max((width * height for width, height, _, _ in windows), default=0)
+    if largest >= 400 * 600:
+        popups = [w for w in windows if w[0] * w[1] < largest * 0.6]
+    else:
+        popups = [w for w in windows if w[1] < 300 and w[0] < 720][-1:]
+    titles = []
+    enter = x.XKeysymToKeycode(d, 0xFF0D)
+    for _, _, w, title in popups:
+        x.XRaiseWindow(d, w)
+        x.XSetInputFocus(d, w, 2, 0)
+        x.XSync(d, 0)
+        time.sleep(0.5)
+        xt.XTestFakeKeyEvent(d, enter, 1, 0)
+        xt.XTestFakeKeyEvent(d, enter, 0, 0)
+        x.XSync(d, 0)
+        titles.append(title or hex(w))
+    x.XCloseDisplay(d)
+    return titles
+
+
 STEAM_UI_APPID = "769"
 
 
@@ -328,7 +451,7 @@ def main():
     for name in names:
         shortcut = shortcuts.get(name)
         if not shortcut:
-            rows.append((name, "no shortcut", "-", "-", "-"))
+            rows.append((name, "no shortcut", "-", "-", "-", "-"))
             print(f"{name}: no shortcut", flush=True)
             continue
         gid = game_id(shortcut["appid"])
@@ -344,6 +467,19 @@ def main():
         seen = wait_for_window(shortcut["appid"], LAUNCH_WAIT)
         shown = seen is not None
         took = f"{seen}s" if shown else "-"
+        # Click through first-run popups so the screenshot shows the launcher itself
+        dismissed = []
+        for _ in range(3):
+            titles = dismiss_dialogs(shortcut["appid"])
+            if not titles:
+                break
+            dismissed += titles
+            time.sleep(8)
+        if dismissed:
+            print(f"{name}: dismissed {dismissed}", flush=True)
+            keep_awake()
+            time.sleep(3)
+            shown = shown or window_shown(shortcut["appid"])
         running = cdp.eval(is_running)
         alive = process_running(shortcut)
         shot = f"{slug}.png" if screenshot(f"{OUT}/{slug}.png") else "-"
@@ -353,14 +489,16 @@ def main():
             result = "FAIL(no window)"
         else:
             result = "FAIL(not running)"
-        rows.append((name, result, took, "yes" if running else "no", shot))
+        rows.append((name, result, took, "; ".join(dismissed) or "-", "yes" if running else "no", shot))
         print(f"{name}: {result} window_after={took} steam_running={running} screenshot={shot}", flush=True)
         stop(cdp, gid)
 
     with open(f"{OUT}/report.md", "w") as f:
         f.write(f"# NSL arm64 Game Mode launch test {time.strftime('%Y-%m-%d %H:%M')}\n\n")
         f.write(f"Launched through Steam (SteamClient.Apps.RunGame), waiting up to {LAUNCH_WAIT}s for a window.\n\n")
-        f.write("| Shortcut | Result | Window after | Steam shows running | Screenshot |\n|---|---|---|---|---|\n")
+        f.write(
+            "| Shortcut | Result | Window after | Popups dismissed | Steam shows running | Screenshot |\n|---|---|---|---|---|---|\n"
+        )
         for row in rows:
             f.write("| " + " | ".join(row) + " |\n")
     with open(f"{OUT}/DONE", "w"):
