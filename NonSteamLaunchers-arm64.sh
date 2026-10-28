@@ -4163,6 +4163,32 @@ echo "Backup completed"
 # Initialize the env_vars file
 > ${logged_in_home}/.config/systemd/user/env_vars
 
+armada_game_launch="/usr/libexec/armada/armada-game-launch"
+
+# Write a FEX config for one of ArmadaOS's FEX profiles, built like armada-game-launch builds its own;
+# fails (so callers skip it) anywhere but ArmadaOS
+write_armada_fex_config() {
+    local profile="$1"
+    local target="$2"
+    [[ -x "$armada_game_launch" && -f /usr/share/armada/fex-profiles.json && -f /usr/share/fex-emu/Config.json ]] || return 1
+    mkdir -p "$(dirname "$target")"
+    python3 - "$profile" "$target" <<'EOF'
+import json
+import sys
+
+profile, target = sys.argv[1:]
+with open("/usr/share/fex-emu/Config.json") as f:
+    config = json.load(f)
+# Each compat tool's FEX resolves its own rootfs and thunk paths
+for key in ("RootFS", "ThunkGuestLibs", "ThunkHostLibs"):
+    config.get("Config", {}).pop(key, None)
+with open("/usr/share/armada/fex-profiles.json") as f:
+    config.setdefault("Config", {}).update(json.load(f)["profiles"][profile]["config"])
+with open(target, "w") as f:
+    json.dump(config, f, indent=2)
+EOF
+}
+
 write_env_vars() {
     local launcher_path="$1"
     local launcher_name="$2"
@@ -4177,6 +4203,15 @@ write_env_vars() {
         shortcut_directory="\"${logged_in_home}/.local/share/Steam/steamapps/compatdata/${launcher_dir_name}/pfx/drive_c/windows/explorer.exe\" /desktop=ARC,1920x1080 \"C:\\Program Files (x86)\\Arc\\Arc.exe\""
     fi
     local launch_options="STEAM_COMPAT_DATA_PATH=\"${logged_in_home}/.local/share/Steam/steamapps/compatdata/${launcher_dir_name}/\" %command%"
+    # Amazon Games' 32-bit .NET service deadlocks under ArmadaOS's default FEX profile, so give it the
+    # "compatible" one. ArmadaOS's per-game profiles can't target non-Steam shortcuts and its wrapper
+    # overwrites FEX_APP_CONFIG, so set it after the wrapper (which leaves options it already sees alone)
+    if [[ "$launcher_name" == "amazon" ]]; then
+        local fex_config="${logged_in_home}/.config/NonSteamLaunchers/fex-amazon-compatible.json"
+        if write_armada_fex_config compatible "$fex_config"; then
+            launch_options="${launch_options/\%command\%/${armada_game_launch} /usr/bin/env FEX_APP_CONFIG=${fex_config} %command%}"
+        fi
+    fi
     local starting_dir="\"$(dirname "${launcher_path}")\""
 
     # Write the variables directly to the env_vars file
