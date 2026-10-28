@@ -8447,10 +8447,12 @@ if not heroic_exe:
         heroic_exe = heroic_appimage
 
 if heroic_exe:
+    # Keep Steam's overlay library out of Heroic: Electron SIGKILLs its helper processes on exit, and one
+    # killed while the preloaded overlay holds Steam's IPC lock (SysMgrMutex) freezes the whole Steam UI
     create_new_entry(
         shortcutdirectory=f'"{heroic_exe}"',
         appname="Heroic Games Launcher",
-        launchoptions="",
+        launchoptions="LD_PRELOAD= %command%",
         startingdir=f'"{os.path.dirname(heroic_exe)}"',
         launcher_name="NonSteamLaunchers"
     )
