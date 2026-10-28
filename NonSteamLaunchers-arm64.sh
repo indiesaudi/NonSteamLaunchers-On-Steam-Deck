@@ -4209,7 +4209,8 @@ write_env_vars() {
     if [[ "$launcher_name" == "amazon" ]]; then
         local fex_config="${logged_in_home}/.config/NonSteamLaunchers/fex-amazon-compatible.json"
         if write_armada_fex_config compatible "$fex_config"; then
-            launch_options="${launch_options/\%command\%/${armada_game_launch} /usr/bin/env FEX_APP_CONFIG=${fex_config} %command%}"
+            # LD_PRELOAD= keeps Steam's overlay library out of env, which can hang loading it (Steam's IPC lock)
+            launch_options="LD_PRELOAD= ${launch_options/\%command\%/${armada_game_launch} /usr/bin/env FEX_APP_CONFIG=${fex_config} %command%}"
         fi
     fi
     local starting_dir="\"$(dirname "${launcher_path}")\""
