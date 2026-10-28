@@ -257,12 +257,12 @@ def screenshot(dest):
     return False
 
 
-def prefix_pids(appid):
-    """Wine processes (and the wineserver) in the NSL prefix, plus Steam's launch chain for this app.
+def prefix_pids(appid, chain=True):
+    """Wine processes (and the wineserver) in the NSL prefix, plus (with chain) Steam's launch chain for this app.
 
     Other games' prefixes and launches are left alone.
     """
-    launch = f"SteamLaunch AppId={appid} ".encode()
+    launch = f"SteamLaunch AppId={appid} ".encode() if chain else None
     pids = []
     for pid in filter(str.isdigit, os.listdir("/proc")):
         try:
@@ -274,27 +274,43 @@ def prefix_pids(appid):
             continue
         cmd = args.split(b"\0")[0].decode(errors="replace")
         in_prefix = (re.match(r"[A-Za-z]:[/\\]", cmd) or cmd.endswith("wineserver")) and PREFIX.encode() in env
-        if in_prefix or launch in args.replace(b"\0", b" "):
+        if in_prefix or (launch and launch in args.replace(b"\0", b" ")):
             pids.append(int(pid))
     return pids
 
 
-def stop(cdp, gid):
-    cdp.eval(f"SteamClient.Apps.TerminateApp('{gid}', false)")
-    time.sleep(8)
-    # Whatever Steam left behind (launcher helpers, wineserver, the launch wrapper Steam waits on)
-    # so the next launch starts clean
-    appid = str(int(gid) >> 32)
-    for sig in (signal.SIGTERM, signal.SIGKILL):
-        for pid in prefix_pids(appid):
-            with contextlib.suppress(OSError):
-                os.kill(pid, sig)
-        time.sleep(4)
-    # Steam refuses the next launch ("Game already running") until it has noticed this one exit
-    for _ in range(20):
-        if not cdp.eval(f"(window.SteamUIStore?.RunningApps || []).some(a => String(a.appid) === '{appid}')"):
-            break
+def steam_running(cdp, appid):
+    return cdp.eval(f"(window.SteamUIStore?.RunningApps || []).some(a => String(a.appid) === '{appid}')")
+
+
+def wait_stopped(cdp, appid, seconds):
+    end = time.time() + seconds
+    while time.time() < end:
+        if not steam_running(cdp, appid):
+            return True
         time.sleep(3)
+    return False
+
+
+def kill(pids, sig):
+    for pid in pids:
+        with contextlib.suppress(OSError):
+            os.kill(pid, sig)
+
+
+def stop(cdp, gid):
+    # Let Steam end the app first. Never SIGKILL a native app Steam preloads its overlay into
+    # (Heroic): killing it mid-IPC leaves Steam's SysMgrMutex held and freezes the whole Steam UI
+    appid = str(int(gid) >> 32)
+    cdp.eval(f"SteamClient.Apps.TerminateApp('{gid}', false)")
+    if not wait_stopped(cdp, appid, 30):
+        # Whatever Steam left behind (launcher helpers, wineserver, the launch wrapper Steam waits on)
+        kill(prefix_pids(appid), signal.SIGTERM)
+        wait_stopped(cdp, appid, 30)
+    # Wine processes in the NSL prefix don't talk to Steam directly, so they can go hard
+    kill(prefix_pids(appid, chain=False), signal.SIGKILL)
+    # Steam refuses the next launch ("Game already running") until it has noticed this one exit
+    wait_stopped(cdp, appid, 60)
     time.sleep(3)
 
 
