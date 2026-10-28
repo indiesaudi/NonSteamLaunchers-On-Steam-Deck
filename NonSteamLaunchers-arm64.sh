@@ -3633,6 +3633,18 @@ for path in sys.argv[1:]:
         json.dump(config, f, indent=2)
 EOF
                 echo "Plarium Play installation complete."
+            elif [ "$launcher_name" = "Glyph Launcher" ]; then
+                # The setup wizard won't copy anything until its terms are accepted. It carries two 7z archives,
+                # the Qt/OpenSSL runtime and the client, so unpack both; the client shows the terms on first launch
+                glyph_dir="${STEAM_COMPAT_DATA_PATH}/pfx/drive_c/Program Files (x86)/Glyph"
+                glyph_tmp=$(mktemp -d)
+                7z x -y -t# -o"$glyph_tmp" "$glyph_file" > /dev/null
+                mkdir -p "$glyph_dir"
+                for glyph_part in "$glyph_tmp"/*.7z; do
+                    7z x -y -o"$glyph_dir" -x'!GlyphInstall*' "$glyph_part" > /dev/null
+                done
+                rm -rf "$glyph_tmp"
+                echo "Glyph installation complete."
             elif [ "$launcher_name" = "STOVE Client" ]; then
                 # The setup wizard crashes (see nsl-stove.bat below); all it installs is this StoveLauncher.7z
                 stove_dir="${STEAM_COMPAT_DATA_PATH}/pfx/drive_c/ProgramData/Smilegate/STOVE"
@@ -3699,7 +3711,7 @@ install_launcher "IndieGala" "IndieGalaLauncher" "$indiegala_file" "$indiegala_u
 install_launcher "Rockstar Games Launcher" "RockstarGamesLauncher" "$rockstar_file" "$rockstar_url" "" "80" "" "" true
 
 # Install Glyph Launcher
-install_launcher "Glyph Launcher" "GlyphLauncher" "$glyph_file" "$glyph_url" "$glyph_file" "81" "" ""
+install_launcher "Glyph Launcher" "GlyphLauncher" "$glyph_file" "$glyph_url" "$glyph_file" "81" "" "" true
 
 # Install Minecraft Legacy Launcher
 install_launcher "Minecraft Launcher" "MinecraftLauncher" "$minecraft_file" "$minecraft_url" "MsiExec.exe /i "$minecraft_file" /q" "82" "" ""
