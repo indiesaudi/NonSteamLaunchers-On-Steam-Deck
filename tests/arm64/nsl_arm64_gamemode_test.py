@@ -11,6 +11,7 @@ Env:   LAUNCH_WAIT (max s to wait for a window, default 240), WINDOW_SETTLE (s t
 """
 
 import base64
+import contextlib
 import ctypes
 import ctypes.util
 import glob
@@ -18,6 +19,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import socket
 import struct
 import subprocess
@@ -72,7 +74,8 @@ LAUNCHERS = [
 def read_shortcuts():
     """Parse Steam's binary shortcuts.vdf into {name: shortcut dict}."""
     path = glob.glob(f"{STEAM}/userdata/*/config/shortcuts.vdf")[0]
-    data = open(path, "rb").read()
+    with open(path, "rb") as f:
+        data = f.read()
 
     def parse(i):
         obj = {}
@@ -103,7 +106,8 @@ class Cdp:
     """Minimal Chrome DevTools client for Steam's SharedJSContext."""
 
     def __init__(self, title="SharedJSContext"):
-        targets = json.load(urllib.request.urlopen("http://127.0.0.1:8080/json"))
+        with urllib.request.urlopen("http://127.0.0.1:8080/json") as resp:
+            targets = json.load(resp)
         url = urllib.parse.urlparse(next(t["webSocketDebuggerUrl"] for t in targets if t["title"] == title))
         self.sock = socket.create_connection((url.hostname, url.port), timeout=120)
         key = base64.b64encode(os.urandom(16)).decode()
@@ -253,16 +257,40 @@ def screenshot(dest):
     return False
 
 
+def prefix_pids(appid):
+    """Wine processes (and the wineserver) in the NSL prefix, plus Steam's launch chain for this app.
+
+    Other games' prefixes and launches are left alone.
+    """
+    launch = f"SteamLaunch AppId={appid} ".encode()
+    pids = []
+    for pid in filter(str.isdigit, os.listdir("/proc")):
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                args = f.read()
+            with open(f"/proc/{pid}/environ", "rb") as f:
+                env = f.read()
+        except OSError:
+            continue
+        cmd = args.split(b"\0")[0].decode(errors="replace")
+        in_prefix = (re.match(r"[A-Za-z]:[/\\]", cmd) or cmd.endswith("wineserver")) and PREFIX.encode() in env
+        if in_prefix or launch in args.replace(b"\0", b" "):
+            pids.append(int(pid))
+    return pids
+
+
 def stop(cdp, gid):
     cdp.eval(f"SteamClient.Apps.TerminateApp('{gid}', false)")
     time.sleep(8)
-    # Whatever Steam left behind (launcher helpers, wineserver) so the next launch starts clean
-    subprocess.run(["pkill", "-TERM", "-f", r"^[A-Za-z]:[/\\]"], capture_output=True)
-    time.sleep(4)
-    subprocess.run(["pkill", "-KILL", "-f", r"^[A-Za-z]:[/\\]"], capture_output=True)
-    subprocess.run(["pkill", "-KILL", "-f", "wineserver"], capture_output=True)
-    # Steam refuses the next launch ("Game already running") until it has noticed this one exit
+    # Whatever Steam left behind (launcher helpers, wineserver, the launch wrapper Steam waits on)
+    # so the next launch starts clean
     appid = str(int(gid) >> 32)
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        for pid in prefix_pids(appid):
+            with contextlib.suppress(OSError):
+                os.kill(pid, sig)
+        time.sleep(4)
+    # Steam refuses the next launch ("Game already running") until it has noticed this one exit
     for _ in range(20):
         if not cdp.eval(f"(window.SteamUIStore?.RunningApps || []).some(a => String(a.appid) === '{appid}')"):
             break
@@ -275,6 +303,11 @@ def main():
     names = sys.argv[1:] or LAUNCHERS
     shortcuts = read_shortcuts()
     cdp = Cdp()
+    # Launching on top of another game (or another test's game) confuses both, and the input sent
+    # to keep the screen awake would go to it
+    busy = cdp.eval("JSON.stringify((window.SteamUIStore?.RunningApps || []).map(a => a.display_name))")
+    if busy and busy != "[]":
+        sys.exit(f"Steam is already running {busy}; close it first")
     rows = []
     for name in names:
         shortcut = shortcuts.get(name)
@@ -314,7 +347,8 @@ def main():
         f.write("| Shortcut | Result | Window after | Steam shows running | Screenshot |\n|---|---|---|---|---|\n")
         for row in rows:
             f.write("| " + " | ".join(row) + " |\n")
-    open(f"{OUT}/DONE", "w").close()
+    with open(f"{OUT}/DONE", "w"):
+        pass
     print(f"Report: {OUT}/report.md")
 
 
