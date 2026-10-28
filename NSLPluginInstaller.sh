@@ -141,7 +141,7 @@ else
   rm -rf /tmp/NonSteamLaunchersDecky*
 fi
 
-[[ "${NSL_DEBUG:-0}" == "1" ]] && set -x
+set -x
 cd "$LOCAL_DIR"
 
 
