@@ -505,7 +505,10 @@ def stop(cdp, gid):
 
 def main():
     os.makedirs(OUT, exist_ok=True)
-    names = sys.argv[1:] or LAUNCHERS
+    # Keep only the last 3 runs' screenshots and reports
+    for old in sorted(glob.glob(f"{os.path.dirname(OUT)}/*/"))[:-3]:
+        shutil.rmtree(old, ignore_errors=True)
+    names =sys.argv[1:] or LAUNCHERS
     shortcuts = read_shortcuts()
     cdp = Cdp()
     # Launching on top of another game (or another test's game) confuses both, and the input sent
