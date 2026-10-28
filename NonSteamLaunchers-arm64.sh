@@ -3300,8 +3300,36 @@ function install_bigfish {
     bigfish_pid=$!
 
     wait $bigfish_pid
-    echo "Big Fish Games Manager installation complete."
     pkill CrBrowserMain
+
+    local drive_c="${STEAM_COMPAT_DATA_PATH}/pfx/drive_c"
+    # The silent install leaves the client unconfigured, so it aborts with "Cannot find the store URL":
+    # select the installer's site/language (bfginstaller32_s1_l1) and put the config where the client reads it
+    for value in SiteID LangID; do
+        "$STEAM_RUNTIME" -- "$proton_dir/proton" run reg add 'HKLM\Software\Big Fish Games\Client\Config' /v "$value" /t REG_SZ /d 1 /f /reg:32
+    done
+    if [ -d "$drive_c/ProgramData/GameManager" ]; then
+        mkdir -p "$drive_c/BigFishCache"
+        cp -r "$drive_c/ProgramData/GameManager" "$drive_c/BigFishCache/"
+    fi
+    # zlib1.dll and unicows.dll aren't marked NX-compatible, so Wine turns DEP off for the client. FEX then
+    # makes its window-procedure thunks non-executable and it crashes; marking them keeps DEP on.
+    python3 - "$drive_c/Program Files (x86)/bfgclient/zlib1.dll" "$drive_c/Program Files (x86)/bfgclient/unicows.dll" <<'EOF'
+import struct
+import sys
+
+for path in sys.argv[1:]:
+    try:
+        with open(path, "r+b") as f:
+            data = bytearray(f.read())
+            characteristics = struct.unpack_from("<I", data, 0x3C)[0] + 24 + 70
+            struct.pack_into("<H", data, characteristics, struct.unpack_from("<H", data, characteristics)[0] | 0x100)
+            f.seek(0)
+            f.write(data)
+    except OSError as e:
+        print(f"Could not mark {path} NX-compatible: {e}")
+EOF
+    echo "Big Fish Games Manager installation complete."
 }
 
 
@@ -3590,6 +3618,20 @@ function install_launcher {
                 tar -xzf "$plarium_bundle" -C "$plarium_dir"
                 rm -rf "${plarium_dir:?}/${plarium_version}"
                 mv "$plarium_dir/build" "$plarium_dir/${plarium_version}"
+                # Under x86 emulation an exception thrown through .NET's emitted reflection stubs can't be unwound,
+                # so the backend FailFasts and Plarium shows "Oops! Something Went Wrong"; interpreted invoke
+                # avoids those stubs
+                python3 - "$plarium_dir/${plarium_version}"/dotnet/*.runtimeconfig.json <<'EOF'
+import json
+import sys
+
+for path in sys.argv[1:]:
+    with open(path) as f:
+        config = json.load(f)
+    config["runtimeOptions"].setdefault("configProperties", {})["Switch.System.Reflection.ForceInterpretedInvoke"] = True
+    with open(path, "w") as f:
+        json.dump(config, f, indent=2)
+EOF
                 echo "Plarium Play installation complete."
             elif [ "$launcher_name" = "STOVE Client" ]; then
                 # The setup wizard crashes (see nsl-stove.bat below); all it installs is this StoveLauncher.7z
