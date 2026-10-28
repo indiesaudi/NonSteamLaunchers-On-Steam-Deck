@@ -78,6 +78,9 @@ def stop_prefix():
         time.sleep(3)
 
 
+MIN_FREE_GB = 30  # the installed prefix is ~21 GB, plus installers and launcher self-updates
+
+
 def reset():
     cdp = gm.Cdp()
     shortcuts = gm.read_shortcuts()
@@ -138,6 +141,10 @@ def main():
     if step in ("reset", "all"):
         reset()
     if step == "all":
+        # Wine rewrites the prefix registry on exit; on a full disk that corrupts it for every launcher
+        free_gb = shutil.disk_usage(os.path.expanduser("~")).free / 2**30
+        if free_gb < MIN_FREE_GB:
+            sys.exit(f"only {free_gb:.1f} GB free in ~, need {MIN_FREE_GB} GB to install every launcher")
         log("installing every launcher")
         subprocess.run(["bash", f"{HERE}/nsl-arm64-autotest.sh"], check=False)
     if step in ("scan", "all"):
