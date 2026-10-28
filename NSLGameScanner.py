@@ -1608,6 +1608,41 @@ def wrap_for_armada(launch_options):
     return f"{wrapped} {opts.strip()}" if opts.strip() else wrapped
 
 
+def strip_nsl_additions(launch_options):
+    """Launch options without what NSL or ArmadaOS add around them, to tell NSL defaults from user edits"""
+    return " ".join(
+        token
+        for token in (launch_options or "").split()
+        if token not in (ARMADA_LAUNCH_WRAPPER, "LD_PRELOAD=", "/usr/bin/env", "%command%")
+        and not token.startswith("FEX_APP_CONFIG=")
+    )
+
+
+def shortcut_target(exe):
+    quoted = re.match(r'"([^"]*)"', exe or "")
+    return os.path.basename(quoted.group(1) if quoted else (exe or "").strip())
+
+
+def find_outdated_nsl_shortcut(appname, exe, launch_options):
+    """The existing shortcut for appname if it still has an earlier NSL target or launch options, else None.
+
+    NSL fixes change some launchers' targets (ARC's virtual desktop) or launch options (no Steam overlay for
+    Heroic and Amazon, Amazon's FEX profile), but existing shortcuts are never touched again, so move the ones
+    still on NSL's earlier values over. Anything the user edited is left alone.
+    """
+    for s in shortcuts['shortcuts'].values():
+        if (s.get('appname') or s.get('AppName')) != appname:
+            continue
+        current_exe = s.get('exe') or s.get('Exe') or ''
+        current_options = s.get('LaunchOptions') or ''
+        if current_exe == exe and current_options == launch_options:
+            return None
+        target = shortcut_target(current_exe)
+        if target and target in exe and strip_nsl_additions(current_options) == strip_nsl_additions(launch_options):
+            return s
+    return None
+
+
 def is_wrapped_duplicate(shortcut, exe_path, launch_options):
     if not exe_path or not launch_options:
         return False
@@ -5955,6 +5990,14 @@ def create_new_entry(shortcutdirectory, appname, launchoptions, startingdir, lau
     # Only store app ID for specific launchers
     if appname in ['Epic Games', 'Gog Galaxy', 'Ubisoft Connect', 'Battle.net', 'EA App', 'Amazon Games', 'itch.io', 'Legacy Games', 'Humble Bundle', 'IndieGala Client', 'Rockstar Games Launcher', 'Glyph', 'Minecraft Launcher', 'Playstation Plus', 'VK Play', 'HoYoPlay', 'Nexon Launcher', 'Game Jolt Client', 'Artix Game Launcher', 'ARC Launcher', 'PURPLE Launcher', 'Plarium Play', 'VFUN Launcher', 'Tempo Launcher', 'Pokémon Trading Card Game Live', 'Antstream Arcade', 'STOVE Client', 'Big Fish Games Manager', 'Gryphlink']:
         app_ids[appname] = unsigned_shortcut_id
+
+    outdated = find_outdated_nsl_shortcut(appname, exe_path, wrap_for_armada(launchoptions))
+    if outdated is not None:
+        print(f"Updating {appname} to NSL's current target and launch options.")
+        outdated['exe' if 'exe' in outdated else 'Exe'] = exe_path
+        outdated['LaunchOptions'] = wrap_for_armada(launchoptions)
+        shortcuts_updated = True
+        return
 
     # Check if shortcut already exists with final values
     if check_if_shortcut_exists(appname, exe_path, startingdir, launchoptions):
