@@ -4287,6 +4287,10 @@ write_env_vars() {
     if [[ "$launcher_name" == "arc" ]]; then
         shortcut_directory="\"${logged_in_home}/.local/share/Steam/steamapps/compatdata/${launcher_dir_name}/pfx/drive_c/windows/explorer.exe\" /desktop=ARC,1920x1080 \"C:\\Program Files (x86)\\Arc\\Arc.exe\""
     fi
+    # Gryphlink's update prompt is a hidden-parent dialog gamescope never shows, so it gets a virtual desktop too
+    if [[ "$launcher_name" == "gryphlink" ]]; then
+        shortcut_directory="\"${logged_in_home}/.local/share/Steam/steamapps/compatdata/${launcher_dir_name}/pfx/drive_c/windows/explorer.exe\" /desktop=Gryphlink,1920x1080 \"C:\\Program Files\\GRYPHLINK\\Launcher.exe\""
+    fi
     # STOVE starts through the wrapper the installer writes (it sets the CPU name STOVE needs first)
     if [[ "$launcher_name" == "stove" && -f "$(dirname "${launcher_path}")/nsl-stove.bat" ]]; then
         shortcut_directory="\"${logged_in_home}/.local/share/Steam/steamapps/compatdata/${launcher_dir_name}/pfx/drive_c/windows/system32/cmd.exe\" /c \"C:\\ProgramData\\Smilegate\\STOVE\\nsl-stove.bat\" \"C:\\ProgramData\\Smilegate\\STOVE\\STOVE.exe\""

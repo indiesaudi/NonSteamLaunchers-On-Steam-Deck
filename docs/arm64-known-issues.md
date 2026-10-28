@@ -36,9 +36,10 @@ NSL workaround: Heroic's and Amazon's shortcuts clear `LD_PRELOAD`, keeping the 
 `PAGE_READONLY`, then executes it. Windows (ATL thunk emulation) and Wine on x86 run it; under FEX's WoW64 it
 raises `EXCEPTION_ACCESS_VIOLATION` at the page start inside a window callback and the client exits.
 `SMCChecks=2` avoids the fault but leaves the client spinning at 100% CPU with a black window. FEX only
-treats readable pages as executable after `ProcessExecuteFlags` disables DEP, which this app never does.
+treats readable pages as executable after `ProcessExecuteFlags` disables DEP: Wine does that for this app
+because its bundled `zlib1.dll` and `unicows.dll` lack `NX_COMPAT`, and FEX then mishandles the DEP-off state.
 
-NSL status: Big Fish installs but doesn't run.
+NSL workaround: the installer sets the `NX_COMPAT` flag on those two DLLs, so DEP stays on and the client runs.
 
 ### Default profile deadlocks Amazon Games' .NET service
 
@@ -57,9 +58,27 @@ The key is volatile, so it can't be set once in the prefix.
 NSL workaround: STOVE starts through `C:\ProgramData\Smilegate\STOVE\nsl-stove.bat`, which sets the value
 for the session and then starts `STOVE.exe`.
 
+## .NET 10 under emulation
+
+### Exceptions through reflection stubs FailFast (Plarium Play)
+
+Plarium's .NET 10 backend throws through emitted reflection `InvokeStub_*` frames; under FEX the runtime
+can't unwind them and calls FailFast, so the launcher shows "Oops! Something Went Wrong".
+
+NSL workaround: the installer sets `Switch.System.Reflection.ForceInterpretedInvoke` in the backend's
+`runtimeconfig.json`.
+
+## Gamescope
+
+### Owned and hidden-parent dialogs never show
+
+Gamescope shows one window per app, so dialogs owned by a hidden window never appear in Game Mode: ARC's
+sign-in and Gryphlink's "Launcher version update detected" prompt.
+
+NSL workaround: ARC and Gryphlink run inside a Wine virtual desktop
+(`explorer.exe /desktop=<name>,1920x1080 <exe>`), which is one plain window.
+
 ## Launchers
 
-- **Plarium Play** opens, then shows its own "Oops! Something Went Wrong" page. Its .NET backend runs and
-  answers locally; the CPU name, web cache and FEX profile aren't the cause. Logs are encrypted.
-- **Glyph** needs its terms accepted once by hand before it installs.
 - **PlayStation Plus** shows a "may not function correctly in a virtual machine" warning that needs one OK.
+- **Gryphlink** asks to update on first start; its buttons are custom-drawn, so they need a click, not Enter.
