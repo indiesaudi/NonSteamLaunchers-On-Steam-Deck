@@ -61,6 +61,8 @@ LAUNCHERS=(
 )
 
 mkdir -p "$OUT"
+# Keep only the last 3 runs; each holds per-launcher install traces and launch logs
+ls -1d "$(dirname "$OUT")"/*/ 2>/dev/null | head -n -3 | xargs -r rm -rf
 REPORT="${OUT}/report.md"
 SUMMARY="${OUT}/summary.tsv"
 

@@ -3492,8 +3492,7 @@ def inject_and_create_shortcut(ws_socket, shortcut_data):
             }))
             injection_response = recv_ws_message_for_id(ws_socket, inject_js_id)
             if not injection_response or injection_response.get("result", {}).get("result", {}).get("value") != "Injection successful!":
-                print("JS injection failed or response invalid:")
-                print(injection_response)
+                print("JS injection failed or response invalid.")
                 return None
             print("JS injected successfully.")
         else:
@@ -4234,7 +4233,6 @@ def inject_playtime_code(ws_socket):
         }))
 
         response = recv_ws_message_for_id(ws_socket, inject_id)
-        print("Playtime injection response:", response)
         return response
     except Exception as e:
         print("Error during Playtime injection:", e)
@@ -4276,7 +4274,6 @@ def inject_thememusic_code(ws_socket):
         }))
 
         response = recv_ws_message_for_id(ws_socket, inject_id)
-        print("ThemeMusic injection response:", response)
         return response
     except Exception as e:
         print("Error during ThemeMusic injection:", e)
@@ -5962,7 +5959,6 @@ def inject_button_code(ws_socket):
         }))
 
         response = recv_ws_message_for_id(ws_socket, inject_id)
-        print("Button injection response:", response)
         return response
 
     except Exception as e:
