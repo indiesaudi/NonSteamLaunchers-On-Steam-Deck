@@ -194,15 +194,29 @@ def keep_awake():
     x.XCloseDisplay(d)
 
 
-def window_shown(appid):
-    """True once gamescope shows this app's window (an app can have focusable but never-shown windows)."""
+STEAM_UI_APPID = "769"
+
+
+def root_cardinals(prop):
     out = subprocess.run(
-        ["xprop", "-root", "GAMESCOPE_FOCUSED_APP"],
+        ["xprop", "-root", prop],
         env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")},
         capture_output=True,
         text=True,
     ).stdout
-    return str(appid) in re.findall(r"\d+", out)
+    return re.findall(r"\d+", out.split("=", 1)[1]) if "=" in out else []
+
+
+def window_shown(appid):
+    """True once the app's window is on screen: gamescope has a window for it and Steam layers it above its own UI.
+
+    GAMESCOPE_FOCUSED_APP stays 769 (Steam) for apps on the second Xwayland, so it can't be used here.
+    """
+    appid = str(appid)
+    layers = root_cardinals("GAMESCOPECTRL_BASELAYER_APPID")
+    if appid not in root_cardinals("GAMESCOPE_FOCUSABLE_APPS") or appid not in layers:
+        return False
+    return STEAM_UI_APPID not in layers or layers.index(appid) < layers.index(STEAM_UI_APPID)
 
 
 def wait_for_window(appid, seconds):

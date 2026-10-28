@@ -4171,6 +4171,11 @@ write_env_vars() {
     local launcher_env_var_name="$5" # Additional parameter for the environment variable name
 
     local shortcut_directory="\"${launcher_path}\" ${launcher_args}"
+    # ARC signs in through an owned dialog that gamescope never focuses (Game Mode shows nothing),
+    # so run it inside a Wine virtual desktop, which is one plain window gamescope can show
+    if [[ "$launcher_name" == "arc" ]]; then
+        shortcut_directory="\"${logged_in_home}/.local/share/Steam/steamapps/compatdata/${launcher_dir_name}/pfx/drive_c/windows/explorer.exe\" /desktop=ARC,1920x1080 \"C:\\Program Files (x86)\\Arc\\Arc.exe\""
+    fi
     local launch_options="STEAM_COMPAT_DATA_PATH=\"${logged_in_home}/.local/share/Steam/steamapps/compatdata/${launcher_dir_name}/\" %command%"
     local starting_dir="\"$(dirname "${launcher_path}")\""
 
