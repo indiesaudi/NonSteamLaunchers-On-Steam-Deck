@@ -133,11 +133,16 @@ test_launcher() {
 		# Steam passes the shortcut's app id; protonfixes crashes without one
 		local appid
 		appid=$(printf '%s' "$name" | cksum | cut -d' ' -f1)
+		# Launch the way the shortcut does: STOVE goes through the wrapper the installer writes
+		local target=("$exe")
+		if [[ -f "$(dirname "$exe")/nsl-stove.bat" ]]; then
+			target=("${DRIVE_C}/windows/system32/cmd.exe" /c 'C:\ProgramData\Smilegate\STOVE\nsl-stove.bat' 'C:\ProgramData\Smilegate\STOVE\STOVE.exe')
+		fi
 		(
 			cd "$(dirname "$exe")" || exit 1
 			STEAM_COMPAT_CLIENT_INSTALL_PATH="$STEAM" STEAM_COMPAT_DATA_PATH="${PREFIX}/" \
 				SteamAppId="$appid" SteamGameId="$appid" \
-				"$SLR" -- "${pdir}/proton" waitforexitandrun "$exe"
+				"$SLR" -- "${pdir}/proton" waitforexitandrun "${target[@]}"
 		) > "${OUT}/${slug}.launch.log" 2>&1 &
 		local launcher_pid=$!
 		sleep "$LAUNCH_WAIT"
