@@ -35,7 +35,7 @@ LAUNCHERS=(
 	"Battle.net|Program Files (x86)/Battle.net/Battle.net Launcher.exe"
 	"Amazon Games|users/steamuser/AppData/Local/Amazon Games/App/Amazon Games.exe"
 	"EA App|Program Files/Electronic Arts/EA Desktop/EA Desktop/EALauncher.exe"
-	"itch.io|users/steamuser/AppData/Local/itch/itch.exe"
+	"itch.io|users/steamuser/AppData/Local/itch/app-*/itch.exe"
 	"Legacy Games|Program Files/Legacy Games/Legacy Games Launcher/Legacy Games Launcher.exe"
 	"Humble Games Collection|Program Files/Humble App/Humble App.exe"
 	"IndieGala|Program Files/IGClient/IGClient.exe"
@@ -73,9 +73,11 @@ proton_dir() {
 # Resolve the installed exe: the expected path, else the same folder + file name anywhere in drive_c
 # (the folder too, since several launchers just ship a "launcher.exe")
 find_exe() {
-	local rel="$1"
-	if [[ -f "${DRIVE_C}/${rel}" ]]; then
-		echo "${DRIVE_C}/${rel}"
+	local rel="$1" match
+	# The path may be a glob (itch.io installs into a versioned app-* folder)
+	match=$(compgen -G "${DRIVE_C}/${rel}" | sort -V | tail -n1)
+	if [[ -n "$match" && -f "$match" ]]; then
+		echo "$match"
 		return
 	fi
 	find "$DRIVE_C" -type f -ipath "*/$(basename "$(dirname "$rel")")/$(basename "$rel")" -not -path "*/windows/*" 2>/dev/null | head -n1
