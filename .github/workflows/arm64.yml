@@ -1,0 +1,83 @@
+name: arm64
+
+# Runs this repo's own checks (pre-commit hooks, .shellcheckrc, ruff.toml) on the arm64 work, and on an
+# arm64-v* tag publishes the same kind of release upstream does: .desktop launchers that curl the script.
+
+on:
+  push:
+    branches: [arm64]
+    tags: ['arm64-v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install tools
+        run: |
+          pip install pre-commit ruff
+          sudo apt-get -qq update && sudo apt-get -qq install -y shellcheck
+
+      - name: Bash syntax
+        run: |
+          for f in NonSteamLaunchers.sh NonSteamLaunchers-arm64.sh NSLPluginInstaller.sh tests/arm64/*.sh; do
+            bash -n "$f"
+          done
+
+      - name: shellcheck (repo .shellcheckrc, errors)
+        run: shellcheck -S error NonSteamLaunchers-arm64.sh NSLPluginInstaller.sh tests/arm64/*.sh
+
+      - name: pre-commit hooks on the arm64 files
+        run: |
+          pre-commit run --show-diff-on-failure --files \
+            NonSteamLaunchers-arm64.sh NonSteamLaunchers-arm64.desktop docs/arm64-known-issues.md tests/arm64/*
+
+      - name: ruff on NSLGameScanner.py adds no findings over upstream main
+        run: |
+          git fetch -q https://github.com/moraroy/NonSteamLaunchers-On-Steam-Deck.git main
+          count() { ruff check --config ruff.toml --no-fix-only --no-fix --output-format concise "$1" | grep -c ':[0-9]*:[0-9]*: ' || true; }
+          git show FETCH_HEAD:NSLGameScanner.py > /tmp/base_scanner.py
+          base=$(count /tmp/base_scanner.py); head=$(count NSLGameScanner.py)
+          echo "upstream main: $base findings, this branch: $head"
+          [ "$head" -le "$base" ]
+
+      - name: Python syntax
+        run: python -m py_compile NSLGameScanner.py config.py tests/arm64/*.py
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/arm64-v')
+    needs: checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build launchers for this repo and ref
+        run: |
+          mkdir -p out
+          # Same files upstream ships, pointed at this fork's arm64 branch
+          sed "s#moraroy/NonSteamLaunchers-On-Steam-Deck/main/#${GITHUB_REPOSITORY}/arm64/#" \
+            NonSteamLaunchers-arm64.desktop > out/NonSteamLaunchers-arm64.desktop
+          sed "s#moraroy/NonSteamLaunchers-On-Steam-Deck/refs/heads/main/#${GITHUB_REPOSITORY}/refs/heads/arm64/#" \
+            NSLPlugin.desktop > out/NSLPlugin.desktop
+          cat out/*.desktop
+
+      - name: Publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" out/*.desktop --prerelease --title "NonSteamLaunchers arm64 $GITHUB_REF_NAME" \
+            --notes "arm64 build of NonSteamLaunchers (SteamOS arm64 / ArmadaOS). Run NonSteamLaunchers-arm64.desktop for the desktop installer or NSLPlugin.desktop for the Decky plugin."
