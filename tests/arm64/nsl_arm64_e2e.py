@@ -100,27 +100,24 @@ def reset():
             os.remove(path)
         log(f"removed {path}")
 
-    # Reinstall the plugin from the arm64 branch (its installer needs sudo; the plugin folder doesn't)
+    # Reinstall the plugin from the arm64 branch. Its installer needs sudo; Decky's folder is root's but the
+    # files in it are the user's, so overwrite them in place (skipping root-owned ones such as plugin.json)
     with urllib.request.urlopen(PLUGIN_ZIP) as r:
         archive = zipfile.ZipFile(io.BytesIO(r.read()))
     root = archive.namelist()[0]
-    for entry in os.listdir(PLUGIN_DIR):
-        target = os.path.join(PLUGIN_DIR, entry)
-        shutil.rmtree(target) if os.path.isdir(target) else os.remove(target)
+    skipped = []
     for member in archive.infolist():
         rel = member.filename[len(root) :]
-        if not rel:
+        if not rel or member.is_dir():
             continue
         dest = os.path.join(PLUGIN_DIR, rel)
-        if member.is_dir():
-            os.makedirs(dest, exist_ok=True)
-        else:
+        try:
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             with open(dest, "wb") as f:
                 f.write(archive.read(member))
-            if rel.endswith(".sh"):
-                os.chmod(dest, 0o755)
-    log(f"plugin refreshed from {PLUGIN_ZIP}")
+        except PermissionError:
+            skipped.append(rel)
+    log(f"plugin refreshed from {PLUGIN_ZIP}; not writable, kept as is: {skipped or 'none'}")
     cdp.eval('DeckyBackend.call("loader/reload_plugin", "NonSteamLaunchers")')
     time.sleep(20)
     remaining = [n for n in gm.LAUNCHERS + NSL_EXTRA_SHORTCUTS if n in gm.read_shortcuts()]
