@@ -9387,3 +9387,49 @@ if removed_apps:
 
             if not found_file:
                 print(f"No .desktop file found for: {game_name}")
+
+
+# Delete NSL's "Steam or Standalone" .desktop files whose Steam shortcut is gone (e.g. an uninstalled launcher).
+# Matched by steam://rungameid since the Name= line can differ from the shortcut's name.
+def remove_orphaned_desktop_files():
+    live_gameids = set()
+    for s in shortcuts['shortcuts'].values():
+        appid = s.get('appid') or s.get('AppID')
+        if appid is not None:
+            live_gameids.add(str(((int(appid) & 0xFFFFFFFF) << 32) | 0x02000000))
+
+    applications_dir = os.path.join(logged_in_home, '.local', 'share', 'applications')
+    desktop_dir = os.path.join(logged_in_home, 'Desktop')
+
+    removed_paths = set()
+    if os.path.isdir(applications_dir):
+        for f in os.listdir(applications_dir):
+            full_path = os.path.join(applications_dir, f)
+            if not f.endswith(".desktop") or os.path.islink(full_path):
+                continue
+            try:
+                with open(full_path) as file:
+                    content = file.read()
+            except Exception:
+                continue
+            if "Comment=Play this game on Steam or Standalone" not in content:
+                continue
+            m = re.search(r'steam://rungameid/(\d+)', content)
+            if m and m.group(1) not in live_gameids:
+                os.remove(full_path)
+                removed_paths.add(full_path)
+                print(f"Deleted orphaned .desktop file: {full_path}")
+
+    # Drop the Desktop symlinks that pointed at the deleted files
+    if removed_paths and os.path.isdir(desktop_dir):
+        for f in os.listdir(desktop_dir):
+            full_path = os.path.join(desktop_dir, f)
+            if os.path.islink(full_path) and os.path.join(desktop_dir, os.readlink(full_path)) in removed_paths:
+                os.remove(full_path)
+                print(f"Deleted Desktop symlink: {full_path}")
+
+
+try:
+    remove_orphaned_desktop_files()
+except Exception as e:
+    print(f"Failed to clean up orphaned .desktop files: {e}")
